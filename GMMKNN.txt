@@ -1,0 +1,107 @@
+%% Clear memory and command window
+clear,clc,close all
+%% Step 1: Defining parameters for EM algorithm
+K = 2;
+R = 3; 
+MaxIt = 20000;
+Tol = 1e-6; % Termination tolerance for likelihood function
+
+%% Step 2: Reading the input files with complete and incomplete values
+% Read input files
+[filename1,pathname1] = uigetfile('*.xlsx*', 'Choose the Complete Dataset');
+[filename,pathname] = uigetfile('*.xlsx*', 'Choose the Incomplete Dataset');
+
+%Uploading the complete dataset
+[Comp,txt,str] = importdata([pathname1,filename1]);
+%Uploading the Incomplete dataset
+Incomp = importdata([pathname,filename],str,txt);
+
+if size(Comp)~=size(Incomp)
+    error('The sizes of input databases don''t match')
+end
+n= size(Comp,1);
+
+%% Step 3: Identifying the indices for missing data and percentage of the missing data and storing the Missing Data values
+[row,col]= find(isnan(Incomp)); %indices of missing data
+Per=100*length(row)/numel(Comp);%Percentageof missing data
+disp('The indices of missing data:')
+t=table(row,col);disp(t);
+disp([num2str(Per) '% of data is missing']); disp(' ');
+% Saving rows of missing data to an excel file
+delete('Missing Data.xls');
+idx=unique(row);
+xlswrite('Missing Data',Incomp(idx,:))
+
+%% Step 4: Fit a Gaussian mixture distribution to data using Expectation-Maximization (EM) algorithm 
+%% Determine best number of components (clusters)
+disp('Density estimation using GMM:')
+Kmax=size(Comp,2);
+AIC = inf*ones(1,Kmax); GMM=cell(1,Kmax); %Preallocation
+for k=1:Kmax
+    try
+        disp(['For number of components (K)= ', num2str(k)])
+        GMM{k} = fitgmdist(Comp,k,'Options',statset('Display','final','MaxIter',MaxIt,'TolFun',Tol),'CovarianceType','full');
+        AIC(k)=GMM{k}.AIC;
+
+
+    catch
+        disp('Convergence can''t be achieved')
+
+    end
+
+end 
+
+% Show the best number of components
+[~,Best_K] = min(AIC);disp(' ')
+disp(['Best number of components is ', num2str(Best_K)])
+GMM=GMM{Best_K};
+
+%Show GMM Parameters
+disp(" ");disp(GMM);
+disp('The position of each component mean :')
+
+%% Step 5: Using Random Draw Imputation process to estimate the missing data
+disp('The positions of each component mean: ')
+disp(GMM.mu)
+
+Comp_sim=random(GMM,fix(R*n)); %Generate random arrays from a specified distribution
+Comp_sim= [Comp_sim;Incomp]; %Append randomly drawn array with missing data
+
+for i=1:length(idx) % this loop will go over all missing values indices
+    tmp1= Incomp(idx(i),:); %storing missing values indices in tmp1
+    tmp3=zeros(fix(R*n),1);
+    nanidx= isnan(tmp1);
+    tmp1(nanidx)=[];
+    Comp_tmp=Comp_sim;
+    Comp_tmp(:,nanidx)=[];
+    for j=1:n
+        tmp2=Comp_tmp(j,:);
+        tmp3(j)=sum((tmp1-tmp2).^2);
+    end
+    [~,index]=sort(tmp3);
+    index = index(1:K);
+    tmp=Comp_sim(index,:);
+    tmp=mean(tmp);
+    Incomp(idx(i),nanidx)=tmp(nanidx);
+
+end
+
+%% Step 6: Calculating the NRMS value from complete and incomplete dataset
+%NRMS calculation
+all_val= Comp(:,:).^2;
+s=sum(all_val(:));
+original_data=sqrt(s);
+
+difference=Comp-Incomp;
+all_val1= difference(:,:).^2;
+s1=sum(all_val1(:));
+difference_data=sqrt(s1);
+
+NRMS=difference_data/original_data;
+display(NRMS);
+
+
+
+
+
+  
